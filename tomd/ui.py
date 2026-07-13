@@ -1,5 +1,6 @@
 import os
 import time
+import traceback
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QIcon
@@ -19,7 +20,9 @@ from PySide6.QtWidgets import (
 
 from tomd import engine
 from tomd.engine import ConversionWorker, estimate_initial_duration, suggest_markdown_path
+from tomd.errors import friendly_error, friendly_save_error
 from tomd.formats import build_file_dialog_filter, is_supported_file
+from tomd.logs import log_file
 from tomd.theme import (
     ACCENT_GREEN,
     BUTTON_QSS,
@@ -448,8 +451,8 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(
                     self,
-                    "Erro ao Salvar",
-                    f"Não foi possível salvar o arquivo:\n{str(e)}"
+                    "Erro ao salvar",
+                    friendly_save_error(e, os.path.dirname(save_path)),
                 )
 
         self.progress_widget.hide()
@@ -457,14 +460,19 @@ class MainWindow(QMainWindow):
         self.drop_zone.show()
         self.url_widget.show()
 
-    def on_error(self, error_message):
+    def on_error(self, exc):
         self.elapsed_ticker.stop()
         self._conversion_start = None
-        QMessageBox.critical(
-            self,
-            "Erro de Conversão",
-            f"Ocorreu um erro durante a conversão:\n{error_message}"
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Critical)
+        box.setWindowTitle("Erro de conversão")
+        box.setText(friendly_error(exc))
+        box.setInformativeText(
+            f"Se precisar de ajuda, o registro completo está em:\n{log_file()}"
         )
+        # Detalhe técnico colapsado: o Qt só mostra ao clicar em "Show Details…".
+        box.setDetailedText("".join(traceback.format_exception(exc)))
+        box.exec()
         self.progress_widget.hide()
         self.file_label.setText("")
         self.drop_zone.show()

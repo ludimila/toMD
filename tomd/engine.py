@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 from PySide6.QtCore import QThread, Signal
 
+from tomd.errors import UserFacingError
 from tomd.web import fetch_url_source, is_url
 
 log = logging.getLogger(__name__)
@@ -235,7 +236,7 @@ class LoaderThread(QThread):
 class ConversionWorker(QThread):
     progress_signal = Signal(int, int)  # current, total
     finished_signal = Signal(str)       # markdown text
-    error_signal = Signal(str)
+    error_signal = Signal(object)
 
     def __init__(self, file_path):
         super().__init__()
@@ -253,7 +254,7 @@ class ConversionWorker(QThread):
 
         try:
             if not is_url(self.file_path) and not os.path.isfile(self.file_path):
-                raise FileNotFoundError(
+                raise UserFacingError(
                     f"Não encontrei o arquivo em:\n{self.file_path}\n\n"
                     "Se ele estiver no OneDrive ou em outra nuvem, abra a pasta "
                     "no Explorador de Arquivos e espere baixar antes de arrastar."
@@ -271,6 +272,6 @@ class ConversionWorker(QThread):
             self.finished_signal.emit(texto_markdown)
         except Exception as e:
             log.exception("Conversão falhou: %s", self.file_path)
-            self.error_signal.emit(str(e))
+            self.error_signal.emit(e)
         finally:
             _progress_callback = None
