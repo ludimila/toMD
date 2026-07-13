@@ -1,12 +1,17 @@
+import logging
 import sys
 
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from tomd.engine import LoaderThread, WarmupThread
+from tomd.logs import setup_logging
 from tomd.ui import LoadingWindow, MainWindow, center_on_screen
+from tomd.version import __version__
 
 
 def main():
+    setup_logging()
+    logging.getLogger("tomd").info("to.MD %s iniciando", __version__)
     app = QApplication(sys.argv)
 
     loading = LoadingWindow()

@@ -9,6 +9,7 @@ import os
 os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
 os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
 
+import logging
 import re
 import sys
 import threading
@@ -19,6 +20,8 @@ from urllib.parse import urlparse
 from PySide6.QtCore import QThread, Signal
 
 from tomd.web import fetch_url_source, is_url
+
+log = logging.getLogger(__name__)
 
 # O Docling/Torch só é importado em segundo plano (ver _load_docling), para que a
 # janela de carregamento apareça instantaneamente ao abrir o programa em vez de
@@ -245,6 +248,8 @@ class ConversionWorker(QThread):
             self.progress_signal.emit(current, total)
 
         _progress_callback = progress_bridge
+        start = time.time()
+        log.info("Conversão iniciada: %s", self.file_path)
 
         try:
             if not is_url(self.file_path) and not os.path.isfile(self.file_path):
@@ -262,8 +267,10 @@ class ConversionWorker(QThread):
                 source = self.file_path
             resultado = conversor.convert(source)
             texto_markdown = resultado.document.export_to_markdown()
+            log.info("Conversão concluída em %.1fs: %s", time.time() - start, self.file_path)
             self.finished_signal.emit(texto_markdown)
         except Exception as e:
+            log.exception("Conversão falhou: %s", self.file_path)
             self.error_signal.emit(str(e))
         finally:
             _progress_callback = None
