@@ -43,23 +43,27 @@ Markdown é o formato favorito de ferramentas de IA, editores de notas (Obsidian
 Você vai precisar de Python 3.10+ (um ambiente conda chamado `docling` funciona muito bem):
 
 ```bash
-pip install docling PySide6
-python converter_gui.py
+pip install -e .
+python run.py
 ```
-
-No Windows, o `Iniciar_Conversor.vbs` abre o app sem janela de terminal (ajuste o caminho do Python dentro dele para o seu ambiente).
 
 ## 🗂️ Estrutura do projeto
 
 ```
 toMD/
-├── converter_gui.py       # 💻 O aplicativo: interface Qt (PySide6) + conversão
-├── converter.py           # ⌨️  Versão de linha de comando (converte um PDF)
-├── testar_docling.py      # ✅ Teste rápido: o Docling está instalado?
-├── Iniciar_Conversor.vbs  # 🚀 Atalho para abrir o app no Windows
-├── to.MD.spec             # 📦 Receita do PyInstaller (gera o to.MD.exe)
-├── installer.iss          # 🎁 Receita do Inno Setup (gera o instalador)
-└── app_icon.ico           # 🎨 Ícone do aplicativo
+├── run.py            # 🚀 Ponto de entrada (python run.py)
+├── tomd/             # 💻 O aplicativo
+│   ├── app.py        #    bootstrap (janela de carregamento + janela principal)
+│   ├── ui.py         #    interface Qt (PySide6)
+│   ├── engine.py     #    conversão via Docling (carregado em segundo plano)
+│   ├── web.py        #    download e reparo de páginas da web
+│   ├── formats.py    #    formatos aceitos
+│   ├── theme.py      #    identidade visual
+│   └── version.py    #    versão do app (fonte única)
+├── tests/            # ✅ Testes (pytest)
+├── to.MD.spec        # 📦 Receita do PyInstaller (gera o to.MD.exe)
+├── installer.iss     # 🎁 Receita do Inno Setup (gera o instalador)
+└── app_icon.ico      # 🎨 Ícone do aplicativo
 ```
 
 ## 🛠️ Como gerar o executável e o instalador

@@ -1,0 +1,517 @@
+import os
+import time
+
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QIcon
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from tomd import engine
+from tomd.engine import ConversionWorker, estimate_initial_duration, suggest_markdown_path
+from tomd.formats import build_file_dialog_filter, is_supported_file
+from tomd.theme import (
+    ACCENT_GREEN,
+    BUTTON_QSS,
+    CANVAS,
+    FONT_FAMILY,
+    HAIRLINE,
+    INK,
+    INK_FAINT,
+    INK_MUTED,
+    PRIMARY,
+    PRIMARY_ACTIVE,
+    SURFACE,
+    apply_card_shadow,
+    make_font,
+    render_app_icon,
+    render_doc_glyph,
+)
+from tomd.web import is_url, normalize_url
+
+
+def center_on_screen(widget: QWidget):
+    screen = widget.screen() or QApplication.primaryScreen()
+    if screen is None:
+        return
+    geo = screen.availableGeometry()
+    frame = widget.frameGeometry()
+    frame.moveCenter(geo.center())
+    widget.move(frame.topLeft())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. COMPONENTE CUSTOMIZADO: ÁREA DE DRAG AND DROP ("feature-card")
+# ──────────────────────────────────────────────────────────────────────────────
+class DropZone(QWidget):
+    file_dropped = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setAcceptDrops(True)
+        self.setObjectName("DropZone")
+        self.setMinimumHeight(220)
+        apply_card_shadow(self)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+
+        self.icon_label = QLabel()
+        self.icon_label.setPixmap(render_doc_glyph(INK_FAINT))
+        self.icon_label.setAlignment(Qt.AlignCenter)
+        self.icon_label.setStyleSheet("border: none; background: transparent;")
+        layout.addWidget(self.icon_label, alignment=Qt.AlignHCenter)
+
+        self.text_label = QLabel("Arraste um documento aqui")
+        self.text_label.setFont(make_font(15, QFont.Normal))
+        self.text_label.setStyleSheet(f"color: {INK}; border: none; background: transparent;")
+        self.text_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.text_label)
+
+        self.hint_label = QLabel("ou")
+        self.hint_label.setFont(make_font(12))
+        self.hint_label.setStyleSheet(f"color: {INK_FAINT}; border: none; background: transparent;")
+        self.hint_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.hint_label)
+
+        self.browse_button = QPushButton("Escolher arquivo")
+        self.browse_button.setObjectName("primaryButton")
+        self.browse_button.setFont(make_font(13, QFont.DemiBold))
+        self.browse_button.setCursor(Qt.PointingHandCursor)
+        self.browse_button.setFixedSize(180, 40)
+        self.browse_button.clicked.connect(self.open_file_dialog)
+        layout.addWidget(self.browse_button, alignment=Qt.AlignHCenter)
+
+        self.reset_style()
+
+    def open_file_dialog(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Selecionar documento", "", build_file_dialog_filter()
+        )
+        if file_path:
+            self.file_dropped.emit(file_path)
+
+    def reset_style(self):
+        self.setStyleSheet(f"""
+            #DropZone {{
+                border: 1px solid {HAIRLINE};
+                border-radius: 12px;
+                background-color: {SURFACE};
+            }}
+        """)
+
+    def set_active_style(self):
+        self.setStyleSheet(f"""
+            #DropZone {{
+                border: 1.5px solid {PRIMARY};
+                border-radius: 12px;
+                background-color: {SURFACE};
+            }}
+        """)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if any(is_supported_file(url.toLocalFile()) for url in urls):
+                event.acceptProposedAction()
+                self.set_active_style()
+
+    def dragLeaveEvent(self, event):
+        self.reset_style()
+
+    def dropEvent(self, event: QDropEvent):
+        self.reset_style()
+        event.acceptProposedAction()
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if file_path and is_supported_file(file_path):
+                self.file_dropped.emit(file_path)
+                return
+        QMessageBox.warning(
+            self,
+            "Formato não suportado",
+            "Esse tipo de arquivo não é reconhecido pelo conversor.\n"
+            "Veja a lista de formatos aceitos em \"Escolher arquivo\"."
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. JANELA PRINCIPAL (MAIN WINDOW)
+# ──────────────────────────────────────────────────────────────────────────────
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("to.MD")
+        self.setWindowIcon(QIcon(render_app_icon()))
+        self.resize(540, 540)
+        self.setMinimumSize(460, 480)
+        self.worker = None
+        self._conversion_start = None
+        self._estimated_total = None
+        self.elapsed_ticker = QTimer(self)
+        self.elapsed_ticker.setInterval(250)
+        self.elapsed_ticker.timeout.connect(self._update_time_label)
+        self.init_ui()
+
+    def init_ui(self):
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {CANVAS};
+            }}
+            QLabel {{
+                font-family: '{FONT_FAMILY}';
+            }}
+            QMessageBox {{
+                background-color: {SURFACE};
+            }}
+            QMessageBox QLabel {{
+                color: {INK};
+                font-family: '{FONT_FAMILY}';
+                font-size: 13px;
+            }}
+            QMessageBox QPushButton {{
+                background-color: {PRIMARY};
+                color: {SURFACE};
+                border: none;
+                border-radius: 16px;
+                padding: 7px 20px;
+                font-family: '{FONT_FAMILY}';
+                font-size: 13px;
+                font-weight: 500;
+            }}
+            QMessageBox QPushButton:hover {{
+                background-color: {PRIMARY_ACTIVE};
+            }}
+            {BUTTON_QSS}
+        """)
+
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(32, 32, 32, 28)
+        main_layout.setSpacing(20)
+
+        # Cabeçalho
+        header_layout = QVBoxLayout()
+        header_layout.setSpacing(6)
+
+        self.title_label = QLabel("to.MD")
+        self.title_label.setFont(make_font(26, QFont.Bold, tracking=-0.8))
+        self.title_label.setStyleSheet(f"color: {INK};")
+        self.title_label.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(self.title_label)
+
+        self.subtitle_label = QLabel("PDF, Word, Excel, PowerPoint, imagens, links e mais → Markdown")
+        self.subtitle_label.setFont(make_font(13))
+        self.subtitle_label.setStyleSheet(f"color: {INK_MUTED};")
+        self.subtitle_label.setAlignment(Qt.AlignCenter)
+        self.subtitle_label.setWordWrap(True)
+        header_layout.addWidget(self.subtitle_label)
+
+        main_layout.addLayout(header_layout)
+
+        # Área de Drop/Seleção
+        self.drop_zone = DropZone()
+        self.drop_zone.file_dropped.connect(self.start_conversion)
+        main_layout.addWidget(self.drop_zone)
+
+        # Opção de converter a partir de um link
+        self.url_widget = QWidget()
+        url_section = QVBoxLayout(self.url_widget)
+        url_section.setContentsMargins(0, 0, 0, 0)
+        url_section.setSpacing(8)
+
+        url_divider = QLabel("ou converta a partir de um link")
+        url_divider.setFont(make_font(11))
+        url_divider.setStyleSheet(f"color: {INK_FAINT};")
+        url_divider.setAlignment(Qt.AlignCenter)
+        url_divider.setWordWrap(True)
+        url_section.addWidget(url_divider)
+
+        url_row = QHBoxLayout()
+        url_row.setSpacing(8)
+
+        self.url_input = QLineEdit()
+        self.url_input.setObjectName("urlInput")
+        self.url_input.setFont(make_font(13))
+        self.url_input.setPlaceholderText("cole o link de um site aqui")
+        self.url_input.returnPressed.connect(self.submit_url)
+        url_row.addWidget(self.url_input, 1)
+
+        self.url_button = QPushButton("Converter")
+        self.url_button.setObjectName("primaryButton")
+        self.url_button.setFont(make_font(13, QFont.DemiBold))
+        self.url_button.setCursor(Qt.PointingHandCursor)
+        self.url_button.setFixedSize(108, 38)
+        self.url_button.clicked.connect(self.submit_url)
+        url_row.addWidget(self.url_button)
+
+        url_section.addLayout(url_row)
+        main_layout.addWidget(self.url_widget)
+
+        # Nome do arquivo selecionado
+        self.file_label = QLabel("")
+        self.file_label.setFont(make_font(12))
+        self.file_label.setStyleSheet(f"color: {INK_MUTED};")
+        self.file_label.setAlignment(Qt.AlignCenter)
+        self.file_label.setWordWrap(True)
+        main_layout.addWidget(self.file_label)
+
+        # Painel de progresso (mesmo chrome de card — hairline + sombra suave)
+        self.progress_widget = QWidget()
+        self.progress_widget.setObjectName("ProgressCard")
+        self.progress_widget.setStyleSheet(f"""
+            #ProgressCard {{
+                background-color: {SURFACE};
+                border: 1px solid {HAIRLINE};
+                border-radius: 12px;
+            }}
+        """)
+        apply_card_shadow(self.progress_widget)
+        progress_inner = QVBoxLayout(self.progress_widget)
+        progress_inner.setContentsMargins(20, 18, 20, 18)
+        progress_inner.setSpacing(12)
+
+        self.status_label = QLabel("Preparando conversão…")
+        self.status_label.setFont(make_font(13, QFont.DemiBold))
+        self.status_label.setStyleSheet(f"color: {INK}; background: transparent; border: none;")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setWordWrap(True)
+        progress_inner.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(8)
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: none;
+                border-radius: 4px;
+                background-color: {CANVAS};
+            }}
+            QProgressBar::chunk {{
+                background-color: {PRIMARY};
+                border-radius: 4px;
+            }}
+        """)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        progress_inner.addWidget(self.progress_bar)
+
+        self.time_label = QLabel("")
+        self.time_label.setFont(make_font(11))
+        self.time_label.setStyleSheet(f"color: {INK_MUTED}; background: transparent; border: none;")
+        self.time_label.setAlignment(Qt.AlignCenter)
+        progress_inner.addWidget(self.time_label)
+
+        self.cancel_button = QPushButton("Cancelar")
+        self.cancel_button.setObjectName("utilityButton")
+        self.cancel_button.setFont(make_font(12))
+        self.cancel_button.setCursor(Qt.PointingHandCursor)
+        self.cancel_button.clicked.connect(self.cancel_conversion)
+        progress_inner.addWidget(self.cancel_button, alignment=Qt.AlignHCenter)
+
+        main_layout.addWidget(self.progress_widget)
+        self.progress_widget.hide()
+
+        main_layout.addStretch()
+
+        self.footer_label = QLabel("to.MD · processamento local, via Docling")
+        self.footer_label.setFont(make_font(10))
+        self.footer_label.setStyleSheet(f"color: {INK_FAINT};")
+        self.footer_label.setAlignment(Qt.AlignCenter)
+        self.footer_label.setWordWrap(True)
+        main_layout.addWidget(self.footer_label)
+
+    def submit_url(self):
+        text = self.url_input.text().strip()
+        if not text:
+            return
+        self.url_input.clear()
+        self.start_conversion(normalize_url(text))
+
+    def start_conversion(self, source):
+        self.drop_zone.hide()
+        self.url_widget.hide()
+        self.file_label.setText(source if is_url(source) else os.path.basename(source))
+        self.progress_bar.setValue(0)
+        if not engine.converter_ready():
+            self.status_label.setText("Carregando modelos (pode demorar mais na 1ª vez)…")
+        else:
+            self.status_label.setText("Preparando conversão…")
+        self.progress_widget.show()
+
+        self._conversion_start = time.time()
+        self._estimated_total = estimate_initial_duration(source)
+        self._update_time_label()
+        self.elapsed_ticker.start()
+
+        self.worker = ConversionWorker(source)
+        self.worker.progress_signal.connect(self.update_progress)
+        self.worker.finished_signal.connect(lambda md: self.on_success(source, md))
+        self.worker.error_signal.connect(self.on_error)
+        self.worker.start()
+
+    def cancel_conversion(self):
+        if self.worker and self.worker.isRunning():
+            self.worker.terminate()
+            self.worker.wait()
+            # terminate() mata a thread à força, podendo interromper o
+            # modelo de OCR/tabela no meio da inferência. Como o conversor é
+            # reaproveitado entre conversões, um estado corrompido aqui
+            # contaminaria todas as conversões seguintes — descarta o cache
+            # para a próxima reconstruir do zero, limpa.
+            engine.reset_converter()
+        self.elapsed_ticker.stop()
+        self._conversion_start = None
+        self.progress_widget.hide()
+        self.file_label.setText("")
+        self.drop_zone.show()
+        self.url_widget.show()
+
+    @staticmethod
+    def _format_duration(seconds):
+        seconds = max(0, int(round(seconds)))
+        minutes, secs = divmod(seconds, 60)
+        return f"{minutes}:{secs:02d}" if minutes else f"{secs}s"
+
+    def _update_time_label(self):
+        if self._conversion_start is None:
+            return
+        elapsed = time.time() - self._conversion_start
+        text = f"decorrido {self._format_duration(elapsed)}"
+        if self._estimated_total:
+            if self._estimated_total > elapsed:
+                restante = self._estimated_total - elapsed
+                text += f" · restante: ~{self._format_duration(restante)}"
+            else:
+                # Passou da estimativa — melhor dizer que ainda está
+                # trabalhando do que simplesmente parar de informar algo.
+                text += " · ainda processando…"
+        self.time_label.setText(text)
+
+    @Slot(int, int)
+    def update_progress(self, current, total):
+        if total > 1:
+            self.status_label.setText(f"Processando página {current} de {total}…")
+        else:
+            self.status_label.setText("Processando documento…")
+        percent = int((current / total) * 100) if total > 0 else 0
+        self.progress_bar.setValue(percent)
+
+        if total > 1 and current > 0 and self._conversion_start:
+            elapsed = time.time() - self._conversion_start
+            self._estimated_total = elapsed * total / current
+
+    def on_success(self, original_path, md_content):
+        # Confirmação discreta: um toque de cor (sticker verde), não um efeito teatral.
+        self.status_label.setText(f'<span style="color:{ACCENT_GREEN};">✓</span>&nbsp;&nbsp;Convertido')
+        self.progress_bar.setValue(100)
+        self.elapsed_ticker.stop()
+        if self._conversion_start:
+            self.time_label.setText(f"concluído em {self._format_duration(time.time() - self._conversion_start)}")
+        self._conversion_start = None
+        QTimer.singleShot(650, lambda: self._prompt_save(original_path, md_content))
+
+    def _prompt_save(self, original_path, md_content):
+        suggested_path = suggest_markdown_path(original_path)
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar arquivo Markdown",
+            suggested_path,
+            "Arquivos Markdown (*.md)"
+        )
+
+        if save_path:
+            try:
+                with open(save_path, "w", encoding="utf-8") as f:
+                    f.write(md_content)
+                QMessageBox.information(
+                    self,
+                    "Sucesso",
+                    f"Arquivo salvo com sucesso em:\n{save_path}"
+                )
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Erro ao Salvar",
+                    f"Não foi possível salvar o arquivo:\n{str(e)}"
+                )
+
+        self.progress_widget.hide()
+        self.file_label.setText("")
+        self.drop_zone.show()
+        self.url_widget.show()
+
+    def on_error(self, error_message):
+        self.elapsed_ticker.stop()
+        self._conversion_start = None
+        QMessageBox.critical(
+            self,
+            "Erro de Conversão",
+            f"Ocorreu um erro durante a conversão:\n{error_message}"
+        )
+        self.progress_widget.hide()
+        self.file_label.setText("")
+        self.drop_zone.show()
+        self.url_widget.show()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5. JANELA DE CARREGAMENTO (aparece na hora, antes do Docling/Torch importarem)
+# ──────────────────────────────────────────────────────────────────────────────
+class LoadingWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("to.MD")
+        self.setWindowIcon(QIcon(render_app_icon()))
+        self.setFixedSize(360, 170)
+        self.setStyleSheet(f"background-color: {CANVAS};")
+
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(14)
+
+        title = QLabel("to.MD")
+        title.setFont(make_font(17, QFont.Bold, tracking=-0.3))
+        title.setStyleSheet(f"color: {INK};")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        self.status_label = QLabel("Iniciando…")
+        self.status_label.setFont(make_font(12))
+        self.status_label.setStyleSheet(f"color: {INK_MUTED};")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.status_label)
+
+        bar = QProgressBar()
+        bar.setRange(0, 0)  # indeterminado
+        bar.setTextVisible(False)
+        bar.setFixedWidth(240)
+        bar.setFixedHeight(6)
+        bar.setStyleSheet(f"""
+            QProgressBar {{
+                border: none;
+                border-radius: 3px;
+                background-color: {HAIRLINE};
+            }}
+            QProgressBar::chunk {{
+                background-color: {PRIMARY};
+                border-radius: 3px;
+            }}
+        """)
+        layout.addWidget(bar, alignment=Qt.AlignCenter)
