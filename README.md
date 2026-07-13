@@ -1,0 +1,86 @@
+# 📄✨ to.MD
+
+**Transforme quase qualquer documento em Markdown — com dois cliques.**
+
+O **to.MD** é um aplicativo de desktop para Windows que converte PDFs, documentos do Office, imagens, páginas da web e muito mais para arquivos Markdown limpos e prontos para usar. Basta arrastar o arquivo para a janela (ou colar uma URL) e pronto! 🎉
+
+Por baixo do capô, ele usa o [Docling](https://github.com/docling-project/docling), da IBM — uma biblioteca de ponta que entende a estrutura do documento (títulos, tabelas, listas) em vez de só extrair texto corrido.
+
+---
+
+## 🤔 Para que serve?
+
+Markdown é o formato favorito de ferramentas de IA, editores de notas (Obsidian, Notion) e documentação em geral. O to.MD é a ponte: pegue aquele PDF, contrato, planilha ou artigo da web e transforme em texto estruturado que qualquer ferramenta entende.
+
+## 📦 Formatos suportados
+
+| Grupo | Extensões |
+|---|---|
+| 📕 PDF | `pdf` |
+| 📝 Word | `docx`, `dotx`, `docm`, `dotm` |
+| 📊 PowerPoint | `pptx`, `potx`, `ppsx`, `pptm`, `potm`, `ppsm` |
+| 📈 Excel | `xlsx`, `xlsm` |
+| 📃 OpenDocument | `odt`, `ott`, `ods`, `ots`, `odp`, `otp` |
+| 🖼️ Imagens | `jpg`, `jpeg`, `png`, `tif`, `tiff`, `bmp`, `webp` |
+| 🌐 Web / Markup | `html`, `htm`, `xhtml`, `xml`, `nxml`, `xbrl` — ou cole uma URL direto! |
+| ✏️ Texto / Markdown | `md`, `txt`, `csv`, `tex`, `latex`, `asciidoc`, `qmd`, `rmd`… |
+| 📧 E-mail / E-book | `eml`, `epub` |
+| 💬 Legendas | `vtt` |
+| 🎵 Áudio / Vídeo | `wav`, `mp3`, `m4a`, `mp4`, `avi`, `mov`… |
+
+## 🚀 Como usar
+
+### Opção 1 — Instalador (recomendado)
+
+1. Baixe e execute o `to.MD_Setup.exe`.
+2. Siga o assistente (ele cria atalho na Área de Trabalho, se você quiser).
+3. Abra o **to.MD**, arraste um arquivo ou cole uma URL, e salve o `.md` gerado. 💾
+
+> ⏳ Na primeira conversão o app baixa os modelos de IA do Hugging Face — pode demorar um pouquinho. Depois disso, fica bem mais rápido.
+
+### Opção 2 — Rodar do código-fonte
+
+Você vai precisar de Python 3.10+ (um ambiente conda chamado `docling` funciona muito bem):
+
+```bash
+pip install docling PySide6
+python converter_gui.py
+```
+
+No Windows, o `Iniciar_Conversor.vbs` abre o app sem janela de terminal (ajuste o caminho do Python dentro dele para o seu ambiente).
+
+## 🗂️ Estrutura do projeto
+
+```
+toMD/
+├── converter_gui.py       # 💻 O aplicativo: interface Qt (PySide6) + conversão
+├── converter.py           # ⌨️  Versão de linha de comando (converte um PDF)
+├── testar_docling.py      # ✅ Teste rápido: o Docling está instalado?
+├── Iniciar_Conversor.vbs  # 🚀 Atalho para abrir o app no Windows
+├── to.MD.spec             # 📦 Receita do PyInstaller (gera o to.MD.exe)
+├── installer.iss          # 🎁 Receita do Inno Setup (gera o instalador)
+└── app_icon.ico           # 🎨 Ícone do aplicativo
+```
+
+## 🛠️ Como gerar o executável e o instalador
+
+Tudo é feito no Windows, em duas etapas:
+
+```bash
+# 1. Gerar a pasta dist/to.MD com o executável
+pyinstaller to.MD.spec
+
+# 2. Empacotar em um instalador único (requer Inno Setup instalado)
+iscc installer.iss
+# → o instalador sai em installer_output/to.MD_Setup.exe
+```
+
+As pastas `build/`, `dist/` e `installer_output/` são recriadas a cada build — por isso ficam fora do controle de versão. 😉
+
+## 💡 Ideias para o futuro
+
+- [ ] Conversão em lote (vários arquivos de uma vez)
+- [ ] Opção de ligar/desligar OCR na interface
+- [ ] Versão para macOS e Linux
+
+Achou um bug ou tem uma ideia? Abra uma issue! 💜

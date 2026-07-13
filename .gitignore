@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Saídas de build (regeradas pelo PyInstaller / Inno Setup)
+build/
+dist/
+installer_output/
+*.exe
+
+# Bibliotecas do bundle do PyInstaller que vazaram para a raiz (não são código-fonte)
+*.dist-info/
+tree_sitter*/
+tzdata/
+websockets/
+win32/
+win32com/
+yaml/
+
+# macOS
+.DS_Store
+
+# Configuração local do Claude Code
+.claude/settings.local.json
+
+# Documentos de teste (podem conter dados pessoais)
+seu_documento*
