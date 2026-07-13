@@ -19,7 +19,7 @@ jobs:
       - name: Confere se a tag bate com tomd/version.py
         shell: bash
         run: |
-          APP_VERSION=$(python -c "exec(open('tomd/version.py').read()); print(__version__)")
+          APP_VERSION=$(python -c "from tomd.version import __version__; print(__version__)")
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           if [ "$APP_VERSION" != "$TAG_VERSION" ]; then
             echo "::error::A tag $GITHUB_REF_NAME não bate com tomd/version.py ($APP_VERSION)."

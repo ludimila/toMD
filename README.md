@@ -60,11 +60,15 @@ toMD/
 │   ├── engine.py     #    conversão via Docling (carregado em segundo plano)
 │   ├── web.py        #    download e reparo de páginas da web
 │   ├── formats.py    #    formatos aceitos
+│   ├── errors.py     #    erros técnicos → mensagens em português claro
+│   ├── logs.py       #    log em arquivo (%LOCALAPPDATA%\toMD\logs)
+│   ├── updates.py    #    aviso de nova versão (GitHub Releases)
 │   ├── theme.py      #    identidade visual
 │   └── version.py    #    versão do app (fonte única)
 ├── tests/            # ✅ Testes (pytest)
 ├── to.MD.spec        # 📦 Receita do PyInstaller (gera o to.MD.exe)
 ├── installer.iss     # 🎁 Receita do Inno Setup (gera o instalador)
+├── LICENSE.md         # 📜 PolyForm Noncommercial 1.0.0
 └── app_icon.ico      # 🎨 Ícone do aplicativo
 ```
 

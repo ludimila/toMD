@@ -472,13 +472,18 @@ class MainWindow(QMainWindow):
         self._update_time_label()
         self.elapsed_ticker.start()
 
-        self.worker = ConversionWorker(source)
-        self.worker.progress_signal.connect(self.update_progress)
-        self.worker.finished_signal.connect(lambda md: self._on_worker_finished(source, md))
-        self.worker.error_signal.connect(lambda exc: self._on_worker_error(source, exc))
-        self.worker.start()
+        worker = ConversionWorker(source)
+        self.worker = worker
+        worker.progress_signal.connect(self.update_progress)
+        worker.finished_signal.connect(lambda md: self._on_worker_finished(worker, source, md))
+        worker.error_signal.connect(lambda exc: self._on_worker_error(worker, source, exc))
+        worker.start()
 
-    def _on_worker_finished(self, source, md_content):
+    def _on_worker_finished(self, worker, source, md_content):
+        if worker is not self.worker:
+            # Sinal tardio de uma conversão já cancelada — ignorar, senão um
+            # "Salvar como" apareceria depois de o usuário cancelar.
+            return
         if self._batch_queue is None:
             self.on_success(source, md_content)
             return
@@ -494,7 +499,9 @@ class MainWindow(QMainWindow):
         self._batch_index += 1
         self._start_next_in_batch()
 
-    def _on_worker_error(self, source, exc):
+    def _on_worker_error(self, worker, source, exc):
+        if worker is not self.worker:
+            return  # sinal tardio de uma conversão já cancelada
         if self._batch_queue is None:
             self.on_error(exc)
             return
@@ -536,6 +543,7 @@ class MainWindow(QMainWindow):
             # contaminaria todas as conversões seguintes — descarta o cache
             # para a próxima reconstruir do zero, limpa.
             engine.reset_converter()
+        self.worker = None
         self.elapsed_ticker.stop()
         self._conversion_start = None
         self.progress_widget.hide()
