@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 import traceback
@@ -19,7 +20,12 @@ from PySide6.QtWidgets import (
 )
 
 from tomd import engine
-from tomd.engine import ConversionWorker, estimate_initial_duration, suggest_markdown_path
+from tomd.engine import (
+    ConversionWorker,
+    estimate_initial_duration,
+    suggest_markdown_path,
+    unique_path,
+)
 from tomd.errors import friendly_error, friendly_save_error
 from tomd.formats import build_file_dialog_filter, is_supported_file
 from tomd.logs import log_file
@@ -42,6 +48,8 @@ from tomd.theme import (
 )
 from tomd.web import is_url, normalize_url
 
+log = logging.getLogger(__name__)
+
 
 def _settings() -> QSettings:
     # Escopo organização/app fixo: a mesma memória vale para abrir e salvar.
@@ -62,7 +70,7 @@ def center_on_screen(widget: QWidget):
 # 3. COMPONENTE CUSTOMIZADO: ÁREA DE DRAG AND DROP ("feature-card")
 # ──────────────────────────────────────────────────────────────────────────────
 class DropZone(QWidget):
-    file_dropped = Signal(str)
+    files_dropped = Signal(list)
 
     def __init__(self):
         super().__init__()
@@ -114,7 +122,7 @@ class DropZone(QWidget):
         )
         if file_path:
             settings.setValue("last_dir", os.path.dirname(file_path))
-            self.file_dropped.emit(file_path)
+            self.files_dropped.emit([file_path])
 
     def reset_style(self):
         self.setStyleSheet(f"""
@@ -147,11 +155,14 @@ class DropZone(QWidget):
     def dropEvent(self, event: QDropEvent):
         self.reset_style()
         event.acceptProposedAction()
-        for url in event.mimeData().urls():
-            file_path = url.toLocalFile()
-            if file_path and is_supported_file(file_path):
-                self.file_dropped.emit(file_path)
-                return
+        files = [
+            url.toLocalFile()
+            for url in event.mimeData().urls()
+            if url.toLocalFile() and is_supported_file(url.toLocalFile())
+        ]
+        if files:
+            self.files_dropped.emit(files)
+            return
         QMessageBox.warning(
             self,
             "Formato não suportado",
@@ -171,6 +182,10 @@ class MainWindow(QMainWindow):
         self.resize(540, 540)
         self.setMinimumSize(460, 480)
         self.worker = None
+        self._batch_queue = None   # lista de arquivos do lote (None = conversão avulsa)
+        self._batch_dir = None
+        self._batch_index = 0
+        self._batch_results = []   # tuplas (origem, sucesso: bool, info: str)
         self._conversion_start = None
         self._estimated_total = None
         self.elapsed_ticker = QTimer(self)
@@ -237,7 +252,7 @@ class MainWindow(QMainWindow):
 
         # Área de Drop/Seleção
         self.drop_zone = DropZone()
-        self.drop_zone.file_dropped.connect(self.start_conversion)
+        self.drop_zone.files_dropped.connect(self.start_sources)
         main_layout.addWidget(self.drop_zone)
 
         # Opção de converter a partir de um link
@@ -354,10 +369,43 @@ class MainWindow(QMainWindow):
         self.url_input.clear()
         self.start_conversion(normalize_url(text))
 
+    def start_sources(self, paths):
+        """Um arquivo mantém o fluxo atual ("Salvar como"); dois ou mais
+        entram na fila de lote, com uma única escolha de pasta de saída."""
+        if len(paths) == 1:
+            self.start_conversion(paths[0])
+            return
+        settings = _settings()
+        start_dir = settings.value("last_dir", "") or ""
+        out_dir = QFileDialog.getExistingDirectory(
+            self, "Escolha a pasta onde salvar os arquivos .md", start_dir
+        )
+        if not out_dir:
+            return
+        settings.setValue("last_dir", out_dir)
+        self._batch_queue = list(paths)
+        self._batch_dir = out_dir
+        self._batch_index = 0
+        self._batch_results = []
+        self._start_next_in_batch()
+
     def start_conversion(self, source):
+        self._batch_queue = None
+        self._start_worker(source)
+
+    def _start_next_in_batch(self):
+        if self._batch_index >= len(self._batch_queue):
+            self._finish_batch()
+            return
+        self._start_worker(self._batch_queue[self._batch_index])
+
+    def _start_worker(self, source):
         self.drop_zone.hide()
         self.url_widget.hide()
-        self.file_label.setText(source if is_url(source) else os.path.basename(source))
+        label = source if is_url(source) else os.path.basename(source)
+        if self._batch_queue is not None:
+            label = f"arquivo {self._batch_index + 1} de {len(self._batch_queue)} — {label}"
+        self.file_label.setText(label)
         self.progress_bar.setValue(0)
         if not engine.converter_ready():
             self.status_label.setText("Carregando modelos (pode demorar mais na 1ª vez)…")
@@ -372,11 +420,59 @@ class MainWindow(QMainWindow):
 
         self.worker = ConversionWorker(source)
         self.worker.progress_signal.connect(self.update_progress)
-        self.worker.finished_signal.connect(lambda md: self.on_success(source, md))
-        self.worker.error_signal.connect(self.on_error)
+        self.worker.finished_signal.connect(lambda md: self._on_worker_finished(source, md))
+        self.worker.error_signal.connect(lambda exc: self._on_worker_error(source, exc))
         self.worker.start()
 
+    def _on_worker_finished(self, source, md_content):
+        if self._batch_queue is None:
+            self.on_success(source, md_content)
+            return
+        name = os.path.splitext(os.path.basename(source))[0] + ".md"
+        target = unique_path(os.path.join(self._batch_dir, name))
+        try:
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(md_content)
+            self._batch_results.append((source, True, os.path.basename(target)))
+        except OSError as e:
+            log.exception("Falha ao salvar %s", target)
+            self._batch_results.append((source, False, friendly_save_error(e, self._batch_dir)))
+        self._batch_index += 1
+        self._start_next_in_batch()
+
+    def _on_worker_error(self, source, exc):
+        if self._batch_queue is None:
+            self.on_error(exc)
+            return
+        self._batch_results.append((source, False, friendly_error(exc)))
+        self._batch_index += 1
+        self._start_next_in_batch()
+
+    def _finish_batch(self):
+        self.elapsed_ticker.stop()
+        self._conversion_start = None
+        self.progress_widget.hide()
+        self.file_label.setText("")
+        self.drop_zone.show()
+        self.url_widget.show()
+
+        results = self._batch_results
+        out_dir = self._batch_dir
+        self._batch_queue = None
+        ok = [r for r in results if r[1]]
+        failed = [r for r in results if not r[1]]
+        lines = [f"Convertidos com sucesso: {len(ok)} de {len(results)}."]
+        if failed:
+            lines.append("")
+            lines.append("Falharam:")
+            for source, _, reason in failed:
+                lines.append(f"• {os.path.basename(source)} — {reason}")
+        lines.append("")
+        lines.append(f"Os arquivos .md estão em:\n{out_dir}")
+        QMessageBox.information(self, "Conversão em lote concluída", "\n".join(lines))
+
     def cancel_conversion(self):
+        self._batch_queue = None  # cancelar interrompe a fila inteira, não só o arquivo atual
         if self.worker and self.worker.isRunning():
             self.worker.terminate()
             self.worker.wait()
@@ -416,10 +512,17 @@ class MainWindow(QMainWindow):
 
     @Slot(int, int)
     def update_progress(self, current, total):
+        prefix = ""
+        if self._batch_queue is not None:
+            prefix = f"arquivo {self._batch_index + 1} de {len(self._batch_queue)} · "
         if total > 1:
-            self.status_label.setText(f"Processando página {current} de {total}…")
+            page_text = f"página {current} de {total}"
         else:
-            self.status_label.setText("Processando documento…")
+            page_text = "processando documento"
+        if prefix:
+            self.status_label.setText(f"{prefix}{page_text}…")
+        else:
+            self.status_label.setText(f"{page_text.capitalize()}…")
         percent = int((current / total) * 100) if total > 0 else 0
         self.progress_bar.setValue(percent)
 

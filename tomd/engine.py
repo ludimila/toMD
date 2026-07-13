@@ -52,6 +52,18 @@ def suggest_markdown_path(source: str) -> str:
     return os.path.join(base_dir, suggested_name)
 
 
+def unique_path(path: str) -> str:
+    """Primeiro caminho livre entre nome.md, nome (2).md, nome (3).md…
+    Usado no lote, onde salvar é automático e sobrescrever seria destrutivo."""
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    n = 2
+    while os.path.exists(f"{base} ({n}){ext}"):
+        n += 1
+    return f"{base} ({n}){ext}"
+
+
 def _load_docling():
     """Importa docling/torch (lento) e aplica o monkeypatch de progresso.
     Só é chamado uma vez, de dentro do LoaderThread, depois que a janela de
