@@ -32,7 +32,7 @@ Markdown é o formato favorito de ferramentas de IA, editores de notas (Obsidian
 
 ### Opção 1 — Instalador (recomendado)
 
-1. Baixe e execute o `to.MD_Setup.exe`.
+1. Baixe o `to.MD_Setup.exe` na [página de Releases](https://github.com/ludimila/toMD/releases/latest) e execute-o.
 2. Siga o assistente (ele cria atalho na Área de Trabalho, se você quiser).
 3. Abra o **to.MD**, arraste um arquivo ou cole uma URL, e salve o `.md` gerado. 💾
 
