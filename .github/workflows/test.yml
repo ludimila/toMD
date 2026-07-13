@@ -1,0 +1,23 @@
+name: Testes
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Só as dev-deps leves: os testes cobrem lógica pura e rodam sem
+      # Docling/PySide6 (o conftest fornece um stub de QtCore).
+      - name: Instala dependências de teste
+        run: pip install pytest==9.1.1
+
+      - name: Roda os testes
+        run: pytest -v
