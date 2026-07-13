@@ -63,3 +63,17 @@ def test_desconhecido_cai_na_generica():
 def test_erro_ao_salvar_menciona_a_pasta():
     msg = friendly_save_error(PermissionError("denied"), "/uma/pasta")
     assert msg == "Não consegui salvar em /uma/pasta — escolha outra pasta."
+
+
+def test_http_com_senha_no_texto_ainda_e_erro_http():
+    HTTPError = type("HTTPError", (Exception,), {})
+    exc = HTTPError("401 Client Error: incorrect password")
+    exc.response = SimpleNamespace(status_code=401)
+    assert friendly_error(exc) == "O site não permitiu baixar esta página (erro 401)."
+
+
+def test_conexao_com_senha_no_texto_ainda_e_erro_de_rede():
+    exc = ConnectionError("proxy password rejected")
+    assert friendly_error(exc) == (
+        "Sem conexão com a internet — verifique sua rede e tente de novo."
+    )

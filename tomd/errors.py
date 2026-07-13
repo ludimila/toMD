@@ -46,9 +46,8 @@ def friendly_error(exc: BaseException) -> str:
 
     full_text = " ".join(str(e) for e in _iter_chain(exc)).lower()
 
-    if "password" in full_text or "encrypted" in full_text:
-        return "Este PDF está protegido por senha. Remova a senha e tente de novo."
-
+    # HTTP e rede vêm ANTES da checagem de senha: um "401 incorrect password"
+    # de site com login é um erro de download, não um PDF protegido.
     status = _http_status(exc)
     if _has_class(exc, "HTTPError") and status:
         return f"O site não permitiu baixar esta página (erro {status})."
@@ -60,6 +59,9 @@ def friendly_error(exc: BaseException) -> str:
         or "nodename nor servname" in full_text
     ):
         return "Sem conexão com a internet — verifique sua rede e tente de novo."
+
+    if "password" in full_text or "encrypted" in full_text:
+        return "Este PDF está protegido por senha. Remova a senha e tente de novo."
 
     if _has_class(exc, "ConversionError") or "corrupt" in full_text or "not valid" in full_text:
         return "Não consegui ler este arquivo — ele pode estar corrompido."
