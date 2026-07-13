@@ -3,8 +3,8 @@ import os
 import time
 import traceback
 
-from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QIcon
+from PySide6.QtCore import QSettings, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QDragEnterEvent, QDesktopServices, QDropEvent, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -29,6 +29,7 @@ from tomd.engine import (
 from tomd.errors import friendly_error, friendly_save_error
 from tomd.formats import build_file_dialog_filter, is_supported_file
 from tomd.logs import log_file
+from tomd.updates import RELEASES_PAGE_URL, UpdateCheckThread
 from tomd.theme import (
     ACCENT_GREEN,
     BUTTON_QSS,
@@ -207,6 +208,10 @@ class MainWindow(QMainWindow):
         self.elapsed_ticker.timeout.connect(self._update_time_label)
         self.init_ui()
 
+        self._update_checker = UpdateCheckThread(self)
+        self._update_checker.update_available.connect(self._show_update_bar)
+        self._update_checker.start()
+
     def init_ui(self):
         self.setStyleSheet(f"""
             QMainWindow {{
@@ -244,6 +249,40 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(32, 32, 32, 28)
         main_layout.setSpacing(20)
+
+        # Barra discreta de nova versão: só aparece se o updater sinalizar.
+        # Não bloqueia nada e não repete diálogos — sem nag.
+        self.update_bar = QWidget()
+        self.update_bar.setObjectName("UpdateBar")
+        self.update_bar.setStyleSheet(f"""
+            #UpdateBar {{
+                background-color: {SURFACE};
+                border: 1px solid {HAIRLINE};
+                border-radius: 8px;
+            }}
+        """)
+        bar_layout = QHBoxLayout(self.update_bar)
+        bar_layout.setContentsMargins(12, 6, 12, 6)
+        bar_layout.setSpacing(8)
+
+        self.update_label = QLabel("Nova versão disponível")
+        self.update_label.setFont(make_font(12))
+        self.update_label.setStyleSheet(f"color: {INK}; border: none; background: transparent;")
+        bar_layout.addWidget(self.update_label, 1)
+
+        self.update_button = QPushButton("Baixar")
+        self.update_button.setObjectName("primaryButton")
+        self.update_button.setFont(make_font(12, QFont.DemiBold))
+        self.update_button.setCursor(Qt.PointingHandCursor)
+        self.update_button.setFixedSize(84, 30)
+        self._update_url = RELEASES_PAGE_URL
+        self.update_button.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(self._update_url))
+        )
+        bar_layout.addWidget(self.update_button)
+
+        main_layout.addWidget(self.update_bar)
+        self.update_bar.hide()
 
         # Cabeçalho
         header_layout = QVBoxLayout()
@@ -542,6 +581,12 @@ class MainWindow(QMainWindow):
         if total > 1 and current > 0 and self._conversion_start:
             elapsed = time.time() - self._conversion_start
             self._estimated_total = elapsed * total / current
+
+    @Slot(str, str)
+    def _show_update_bar(self, tag, url):
+        self._update_url = url
+        self.update_label.setText(f"Nova versão disponível ({tag})")
+        self.update_bar.show()
 
     def on_success(self, original_path, md_content):
         # Confirmação discreta: um toque de cor (sticker verde), não um efeito teatral.
