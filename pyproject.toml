@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tomd"
+description = "Conversor de documentos para Markdown (Docling + PySide6)"
+requires-python = ">=3.10"
+dynamic = ["version"]
+dependencies = [
+    "docling==2.112.0",
+    "PySide6==6.11.1",
+    "requests==2.34.2",
+    "beautifulsoup4==4.15.0",
+    "html5lib==1.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+
+[tool.setuptools]
+packages = ["tomd"]
+
+[tool.setuptools.dynamic]
+version = { attr = "tomd.version.__version__" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
