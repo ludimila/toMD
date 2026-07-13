@@ -25,3 +25,6 @@ yaml/
 
 # Documentos de teste (podem conter dados pessoais)
 seu_documento*
+
+# Scratch do fluxo de execução de planos (subagent-driven development)
+.superpowers/
