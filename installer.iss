@@ -4,7 +4,11 @@
 ; desinstalador.
 
 #define MyAppName "to.MD"
-#define MyAppVersion "1.0"
+; A versão vem do CI via /DMyAppVersion=<versão de tomd/version.py>;
+; o default abaixo vale só para builds locais na mão.
+#ifndef MyAppVersion
+  #define MyAppVersion "1.1"
+#endif
 #define MyAppExeName "to.MD.exe"
 #define MyAppSourceDir "dist\to.MD"
 

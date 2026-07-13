@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Confere se a tag bate com tomd/version.py
+        shell: bash
+        run: |
+          APP_VERSION=$(python -c "exec(open('tomd/version.py').read()); print(__version__)")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$APP_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::A tag $GITHUB_REF_NAME não bate com tomd/version.py ($APP_VERSION)."
+            exit 1
+          fi
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+
+      # --no-cache-dir: o torch é gigante e o disco do runner é apertado.
+      - name: Instala as dependências completas
+        run: pip install --no-cache-dir . pyinstaller==6.21.0
+
+      - name: Gera o executável (PyInstaller)
+        run: pyinstaller to.MD.spec
+
+      # O Inno Setup vem pré-instalado na imagem windows-latest.
+      - name: Gera o instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss "/DMyAppVersion=$env:APP_VERSION"
+
+      - name: Publica o GitHub Release com o instalador
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "installer_output/to.MD_Setup.exe" \
+            --title "to.MD $GITHUB_REF_NAME" --generate-notes
