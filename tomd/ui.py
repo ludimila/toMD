@@ -2,7 +2,7 @@ import os
 import time
 import traceback
 
-from PySide6.QtCore import Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -41,6 +41,11 @@ from tomd.theme import (
     render_doc_glyph,
 )
 from tomd.web import is_url, normalize_url
+
+
+def _settings() -> QSettings:
+    # Escopo organização/app fixo: a mesma memória vale para abrir e salvar.
+    return QSettings("toMD", "toMD")
 
 
 def center_on_screen(widget: QWidget):
@@ -102,10 +107,13 @@ class DropZone(QWidget):
         self.reset_style()
 
     def open_file_dialog(self):
+        settings = _settings()
+        start_dir = settings.value("last_dir", "") or ""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Selecionar documento", "", build_file_dialog_filter()
+            self, "Selecionar documento", start_dir, build_file_dialog_filter()
         )
         if file_path:
+            settings.setValue("last_dir", os.path.dirname(file_path))
             self.file_dropped.emit(file_path)
 
     def reset_style(self):
@@ -431,6 +439,13 @@ class MainWindow(QMainWindow):
 
     def _prompt_save(self, original_path, md_content):
         suggested_path = suggest_markdown_path(original_path)
+        settings = _settings()
+        last_dir = settings.value("last_dir", "") or ""
+        # Arquivo local sugere a própria pasta de origem (mais útil); para
+        # URLs, que não têm pasta, a última pasta usada vence o padrão
+        # Documentos.
+        if is_url(original_path) and last_dir:
+            suggested_path = os.path.join(last_dir, os.path.basename(suggested_path))
 
         save_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -440,6 +455,7 @@ class MainWindow(QMainWindow):
         )
 
         if save_path:
+            settings.setValue("last_dir", os.path.dirname(save_path))
             try:
                 with open(save_path, "w", encoding="utf-8") as f:
                     f.write(md_content)
