@@ -71,6 +71,7 @@ def center_on_screen(widget: QWidget):
 # ──────────────────────────────────────────────────────────────────────────────
 class DropZone(QWidget):
     files_dropped = Signal(list)
+    url_dropped = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -92,7 +93,7 @@ class DropZone(QWidget):
         self.icon_label.setStyleSheet("border: none; background: transparent;")
         layout.addWidget(self.icon_label, alignment=Qt.AlignHCenter)
 
-        self.text_label = QLabel("Arraste um documento aqui")
+        self.text_label = QLabel("Arraste documentos ou um link aqui")
         self.text_label.setFont(make_font(15, QFont.Normal))
         self.text_label.setStyleSheet(f"color: {INK}; border: none; background: transparent;")
         self.text_label.setAlignment(Qt.AlignCenter)
@@ -124,6 +125,22 @@ class DropZone(QWidget):
             settings.setValue("last_dir", os.path.dirname(file_path))
             self.files_dropped.emit([file_path])
 
+    def _split_payload(self, mime_data):
+        """Separa o que foi arrastado em arquivos locais suportados e links
+        http(s). Navegadores fornecem a URL como QUrl remoto; alguns também
+        só como texto — o fallback de texto cobre esse caso."""
+        files, links = [], []
+        for url in mime_data.urls():
+            local = url.toLocalFile()
+            if local:
+                if is_supported_file(local):
+                    files.append(local)
+            elif url.scheme() in ("http", "https"):
+                links.append(url.toString())
+        if not links and not files and mime_data.hasText() and is_url(mime_data.text()):
+            links.append(mime_data.text().strip())
+        return files, links
+
     def reset_style(self):
         self.setStyleSheet(f"""
             #DropZone {{
@@ -143,11 +160,10 @@ class DropZone(QWidget):
         """)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls():
-            urls = event.mimeData().urls()
-            if any(is_supported_file(url.toLocalFile()) for url in urls):
-                event.acceptProposedAction()
-                self.set_active_style()
+        files, links = self._split_payload(event.mimeData())
+        if files or links:
+            event.acceptProposedAction()
+            self.set_active_style()
 
     def dragLeaveEvent(self, event):
         self.reset_style()
@@ -155,20 +171,18 @@ class DropZone(QWidget):
     def dropEvent(self, event: QDropEvent):
         self.reset_style()
         event.acceptProposedAction()
-        files = [
-            url.toLocalFile()
-            for url in event.mimeData().urls()
-            if url.toLocalFile() and is_supported_file(url.toLocalFile())
-        ]
+        files, links = self._split_payload(event.mimeData())
         if files:
             self.files_dropped.emit(files)
-            return
-        QMessageBox.warning(
-            self,
-            "Formato não suportado",
-            "Esse tipo de arquivo não é reconhecido pelo conversor.\n"
-            "Veja a lista de formatos aceitos em \"Escolher arquivo\"."
-        )
+        elif links:
+            self.url_dropped.emit(links[0])
+        else:
+            QMessageBox.warning(
+                self,
+                "Formato não suportado",
+                "Esse tipo de arquivo não é reconhecido pelo conversor.\n"
+                "Veja a lista de formatos aceitos em \"Escolher arquivo\"."
+            )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -253,6 +267,7 @@ class MainWindow(QMainWindow):
         # Área de Drop/Seleção
         self.drop_zone = DropZone()
         self.drop_zone.files_dropped.connect(self.start_sources)
+        self.drop_zone.url_dropped.connect(self.start_conversion)
         main_layout.addWidget(self.drop_zone)
 
         # Opção de converter a partir de um link
