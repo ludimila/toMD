@@ -26,13 +26,15 @@ Markdown é o formato favorito de ferramentas de IA, editores de notas (Obsidian
 | ✏️ Texto / Markdown | `md`, `txt`, `csv`, `tex`, `latex`, `asciidoc`, `qmd`, `rmd`… |
 | 📧 E-mail / E-book | `eml`, `epub` |
 | 💬 Legendas | `vtt` |
-| 🎵 Áudio / Vídeo | `wav`, `mp3`, `m4a`, `mp4`, `avi`, `mov`… |
 
 ## 🚀 Como usar
 
 ### Opção 1 — Instalador (recomendado)
 
 1. Baixe o `to.MD_Setup.exe` na [página de Releases](https://github.com/ludimila/toMD/releases/latest) e execute-o.
+
+> 🛡️ O Windows pode mostrar um aviso do SmartScreen ("aplicativo não reconhecido") porque o instalador não tem assinatura digital paga. Clique em **Mais informações → Executar assim mesmo** — o app roda 100% na sua máquina e nenhum documento sai dela.
+
 2. Siga o assistente (ele cria atalho na Área de Trabalho, se você quiser).
 3. Abra o **to.MD**, arraste um arquivo ou cole uma URL, e salve o `.md` gerado. 💾
 
@@ -81,9 +83,12 @@ iscc installer.iss
 
 As pastas `build/`, `dist/` e `installer_output/` são recriadas a cada build — por isso ficam fora do controle de versão. 😉
 
+## 📜 Licença
+
+O to.MD é gratuito para uso pessoal e não comercial — use, adapte e compartilhe à vontade. O que **não** pode é usá-lo (ou código derivado dele) para ganhar dinheiro. Texto completo: [LICENSE.md](LICENSE.md) (PolyForm Noncommercial 1.0.0). Copyright © 2026 Mateus Freitas Gonçalves.
+
 ## 💡 Ideias para o futuro
 
-- [ ] Conversão em lote (vários arquivos de uma vez)
 - [ ] Opção de ligar/desligar OCR na interface
 - [ ] Versão para macOS e Linux
 
