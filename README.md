@@ -26,6 +26,7 @@ Markdown é o formato favorito de ferramentas de IA, editores de notas (Obsidian
 | Texto / Markdown | `md`, `txt`, `csv`, `tex`, `latex`, `asciidoc`, `qmd`, `rmd`… |
 | E-mail / E-book | `eml`, `epub` |
 | Legendas | `vtt` |
+| Outros | `json`, `tar.gz` |
 
 ## Como usar
 
@@ -54,6 +55,9 @@ python run.py
 ```
 toMD/
 ├── run.py            # Ponto de entrada (python run.py)
+├── pyproject.toml    # Dependências e metadados (pip install -e .)
+├── .github/
+│   └── workflows/    # CI: testes (test.yml) e release (release.yml)
 ├── tomd/             # O aplicativo
 │   ├── app.py        #   bootstrap (janela de carregamento + janela principal)
 │   ├── ui.py         #   interface Qt (PySide6)
