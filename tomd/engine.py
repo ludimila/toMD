@@ -95,7 +95,7 @@ def _load_docling():
     carregamento já está visível na tela."""
     global DocumentConverter, DocumentStream
     global PdfFormatOption, ImageFormatOption
-    global PdfPipelineOptions, TableFormerMode, AcceleratorOptions
+    global PdfPipelineOptions, TableFormerMode, AcceleratorOptions, EasyOcrOptions
 
     from docling.document_converter import (
         DocumentConverter as _DC,
@@ -105,6 +105,7 @@ def _load_docling():
     from docling.datamodel.pipeline_options import (
         PdfPipelineOptions as _PPO,
         TableFormerMode as _TFM,
+        EasyOcrOptions as _EOO,
     )
     from docling.datamodel.accelerator_options import AcceleratorOptions as _AO
     from docling.pipeline.standard_pdf_pipeline import ProcessingResult
@@ -115,6 +116,7 @@ def _load_docling():
     ImageFormatOption = _ImgFO
     PdfPipelineOptions = _PPO
     TableFormerMode = _TFM
+    EasyOcrOptions = _EOO
     AcceleratorOptions = _AO
     DocumentStream = _DS
 
@@ -157,6 +159,10 @@ def _build_format_options():
     """
     pdf_options = PdfPipelineOptions()
     pdf_options.do_ocr = True
+    # O padrão do Docling é o EasyOCR com ["fr", "de", "es", "en"] — quatro
+    # modelos de idioma e nenhum deles português. Limitar a pt/en carrega
+    # menos modelo (OCR mais rápido) e lê acentos (ã, ç…) corretamente.
+    pdf_options.ocr_options = EasyOcrOptions(lang=["pt", "en"])
     pdf_options.do_table_structure = True
     pdf_options.table_structure_options.mode = TableFormerMode.ACCURATE
     # Usa todos os núcleos da CPU em vez do padrão (4) — medido ~31% mais
