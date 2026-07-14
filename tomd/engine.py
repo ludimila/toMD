@@ -52,6 +52,31 @@ def suggest_markdown_path(source: str) -> str:
     return os.path.join(base_dir, suggested_name)
 
 
+def precheck_local_file(path: str):
+    """Falhas óbvias de arquivo viram mensagens claras ANTES de o Docling rodar
+    — sem isso, elas viram um genérico "pode estar corrompido". O caso clássico
+    é o download que falhou: sites com login (PJe, eproc…) às vezes salvam uma
+    página de erro em HTML com o nome do PDF."""
+    if os.path.getsize(path) == 0:
+        raise UserFacingError(
+            "Este arquivo está vazio (0 bytes).\n\n"
+            "Se ele veio de um download ou do OneDrive, baixe de novo e "
+            "confira se ele abre normalmente antes de converter."
+        )
+    if path.lower().endswith(".pdf"):
+        with open(path, "rb") as f:
+            head = f.read(1024)
+        # A especificação do PDF tolera lixo antes do cabeçalho, desde que
+        # "%PDF-" apareça nos primeiros 1024 bytes.
+        if b"%PDF-" not in head:
+            raise UserFacingError(
+                "Este arquivo tem extensão .pdf, mas o conteúdo não é um PDF.\n\n"
+                "Isso costuma acontecer quando o download falha ou quando um "
+                "site com login salva uma página de erro no lugar do documento. "
+                "Baixe o arquivo de novo e confira se ele abre no leitor de PDF."
+            )
+
+
 def unique_path(path: str) -> str:
     """Primeiro caminho livre entre nome.md, nome (2).md, nome (3).md…
     Usado no lote, onde salvar é automático e sobrescrever seria destrutivo."""
@@ -70,7 +95,7 @@ def _load_docling():
     carregamento já está visível na tela."""
     global DocumentConverter, DocumentStream
     global PdfFormatOption, ImageFormatOption
-    global PdfPipelineOptions, TableFormerMode, AcceleratorOptions
+    global PdfPipelineOptions, TableFormerMode, AcceleratorOptions, EasyOcrOptions
 
     from docling.document_converter import (
         DocumentConverter as _DC,
@@ -80,6 +105,7 @@ def _load_docling():
     from docling.datamodel.pipeline_options import (
         PdfPipelineOptions as _PPO,
         TableFormerMode as _TFM,
+        EasyOcrOptions as _EOO,
     )
     from docling.datamodel.accelerator_options import AcceleratorOptions as _AO
     from docling.pipeline.standard_pdf_pipeline import ProcessingResult
@@ -90,6 +116,7 @@ def _load_docling():
     ImageFormatOption = _ImgFO
     PdfPipelineOptions = _PPO
     TableFormerMode = _TFM
+    EasyOcrOptions = _EOO
     AcceleratorOptions = _AO
     DocumentStream = _DS
 
@@ -132,6 +159,10 @@ def _build_format_options():
     """
     pdf_options = PdfPipelineOptions()
     pdf_options.do_ocr = True
+    # O padrão do Docling é o EasyOCR com ["fr", "de", "es", "en"] — quatro
+    # modelos de idioma e nenhum deles português. Limitar a pt/en carrega
+    # menos modelo (OCR mais rápido) e lê acentos (ã, ç…) corretamente.
+    pdf_options.ocr_options = EasyOcrOptions(lang=["pt", "en"])
     pdf_options.do_table_structure = True
     pdf_options.table_structure_options.mode = TableFormerMode.ACCURATE
     # Usa todos os núcleos da CPU em vez do padrão (4) — medido ~31% mais
@@ -265,12 +296,14 @@ class ConversionWorker(QThread):
         log.info("Conversão iniciada: %s", self.file_path)
 
         try:
-            if not is_url(self.file_path) and not os.path.isfile(self.file_path):
-                raise UserFacingError(
-                    f"Não encontrei o arquivo em:\n{self.file_path}\n\n"
-                    "Se ele estiver no OneDrive ou em outra nuvem, abra a pasta "
-                    "no Explorador de Arquivos e espere baixar antes de arrastar."
-                )
+            if not is_url(self.file_path):
+                if not os.path.isfile(self.file_path):
+                    raise UserFacingError(
+                        f"Não encontrei o arquivo em:\n{self.file_path}\n\n"
+                        "Se ele estiver no OneDrive ou em outra nuvem, abra a pasta "
+                        "no Explorador de Arquivos e espere baixar antes de arrastar."
+                    )
+                precheck_local_file(self.file_path)
 
             conversor = _get_converter()
 

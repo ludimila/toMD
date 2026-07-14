@@ -124,6 +124,13 @@ class DropZone(QWidget):
         )
         if file_path:
             settings.setValue("last_dir", os.path.dirname(file_path))
+            # O filtro do diálogo inclui "Todos os arquivos (*)", então a
+            # seleção precisa da mesma validação que o drag and drop — sem
+            # isso, um formato não suportado chega ao Docling e vira um
+            # "arquivo corrompido" enganoso.
+            if not is_supported_file(file_path):
+                self._warn_unsupported()
+                return
             self.files_dropped.emit([file_path])
 
     def _split_payload(self, mime_data):
@@ -178,12 +185,15 @@ class DropZone(QWidget):
         elif links:
             self.url_dropped.emit(links[0])
         else:
-            QMessageBox.warning(
-                self,
-                "Formato não suportado",
-                "Esse tipo de arquivo não é reconhecido pelo conversor.\n"
-                "Veja a lista de formatos aceitos em \"Escolher arquivo\"."
-            )
+            self._warn_unsupported()
+
+    def _warn_unsupported(self):
+        QMessageBox.warning(
+            self,
+            "Formato não suportado",
+            "Esse tipo de arquivo não é reconhecido pelo conversor.\n"
+            "Veja a lista de formatos aceitos em \"Escolher arquivo\"."
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
